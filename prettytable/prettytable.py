@@ -22,6 +22,8 @@ MSWORD_FRIENDLY = 11
 PLAIN_COLUMNS = 12
 RANDOM = 20
 
+ENUM_SIGN = "#"
+
 _re = re.compile("\033\[[0-9;]*m")
 
 
@@ -64,7 +66,9 @@ class PrettyTable(object):
         sort_key - sorting key function, applied to data points before sorting
         valign - default valign for each row (None, "t", "m" or "b")
         reversesort - True or False to sort in descending or ascending order
-        oldsortslice - Slice rows before sorting in the "old style" """
+        oldsortslice - Slice rows before sorting in the "old style"
+        enum_rows - row numbers in the first column (True or False)
+        """
 
         self.encoding = kwargs.get("encoding", "UTF-8")
 
@@ -88,7 +92,7 @@ class PrettyTable(object):
             "int_format float_format min_table_width max_table_width padding_width left_padding_width right_padding_width".split())
         self._options.extend(
             "vertical_char horizontal_char junction_char header_style valign xhtml print_empty oldsortslice".split())
-        self._options.extend("align valign max_width min_width".split())
+        self._options.extend("align valign max_width min_width enum_rows".split())
         for option in self._options:
             if option in kwargs:
                 self._validate_option(option, kwargs[option])
@@ -118,6 +122,11 @@ class PrettyTable(object):
         else:
             self._reversesort = False
         self._sort_key = kwargs["sort_key"] or (lambda x: x)
+
+        if kwargs["enum_rows"] in (True, False):
+            self._enum_rows = kwargs["enum_rows"]
+        else:
+            self._enum_rows = False
 
         # Column specific arguments, use property.setters
         self.align = kwargs["align"] or {}
@@ -247,7 +256,8 @@ class PrettyTable(object):
             self._validate_vrules(option, val)
         elif option in ("fields"):
             self._validate_all_field_names(option, val)
-        elif option in ("header", "border", "reversesort", "xhtml", "print_empty", "oldsortslice"):
+        elif option in ("header", "border", "reversesort", "xhtml", "print_empty", "oldsortslice",
+                        "enum_rows"):
             self._validate_true_or_false(option, val)
         elif option in ("header_style"):
             self._validate_header_style(val)
@@ -648,6 +658,20 @@ class PrettyTable(object):
     def border(self, val):
         self._validate_option("border", val)
         self._border = val
+
+    @property
+    def enum_rows(self):
+        """Adds a new column with row numbers
+
+        Arguments:
+
+        enum_rows - row numbers in the first column (True or False)"""
+        return self._enum_rows
+
+    @enum_rows.setter
+    def enum_rows(self, val):
+        self._validate_option("enum_rows", val)
+        self._enum_rows = val
 
     @property
     def hrules(self):
@@ -1202,7 +1226,8 @@ class PrettyTable(object):
             lines.append(self._hrule)
 
         # Add rows
-        for row in formatted_rows:
+        for row_num, row in enumerate(formatted_rows, start=1):
+            options["row_num"] = row_num
             lines.append(self._stringify_row(row, options))
 
         # Add bottom of border
@@ -1212,6 +1237,13 @@ class PrettyTable(object):
         return self._unicode("\n").join(lines)
 
     def _stringify_hrule(self, options):
+        if self._enum_rows:
+            field_names = [ENUM_SIGN] + self._field_names
+            widths = [len(str(len(self._rows)))] + self._widths
+            self._align[ENUM_SIGN] = "r"
+        else:
+            field_names = self._field_names
+            widths = self._widths
 
         if not options["border"]:
             return ""
@@ -1224,7 +1256,7 @@ class PrettyTable(object):
         if not self._field_names:
             bits.append(options["junction_char"])
             return "".join(bits)
-        for field, width in zip(self._field_names, self._widths):
+        for field, width in zip(field_names, widths):
             if options["fields"] and field not in options["fields"]:
                 continue
             bits.append((width + lpad + rpad) * options["horizontal_char"])
@@ -1275,7 +1307,16 @@ class PrettyTable(object):
                 bits.append(options["vertical_char"])
             else:
                 bits.append(" ")
-        for field, width, in zip(self._field_names, self._widths):
+
+        if self._enum_rows:
+            field_names = [ENUM_SIGN] + self._field_names
+            widths = [len(str(len(self._rows)))] + self._widths
+            self._align[ENUM_SIGN] = "r"
+        else:
+            field_names = self._field_names
+            widths = self._widths
+
+        for field, width, in zip(field_names, widths):
             if options["fields"] and field not in options["fields"]:
                 continue
             if self._header_style == "cap":
@@ -1306,7 +1347,16 @@ class PrettyTable(object):
 
     def _stringify_row(self, row, options):
 
-        for index, field, value, width, in zip(range(0, len(row)), self._field_names, row, self._widths):
+        if self._enum_rows:
+            field_names = [ENUM_SIGN] + self._field_names
+            widths = [len(str(len(self._rows)))] + self._widths
+            self._valign[ENUM_SIGN] = "t"
+            row = [str(options["row_num"])] + row
+        else:
+            field_names = self._field_names
+            widths = self._widths
+
+        for index, field, value, width, in zip(range(0, len(row)), field_names, row, widths):
             # Enforce max widths
             lines = value.split("\n")
             new_lines = []
@@ -1334,7 +1384,7 @@ class PrettyTable(object):
                 else:
                     bits[y].append(" ")
 
-        for field, value, width, in zip(self._field_names, row, self._widths):
+        for field, value, width, in zip(field_names, row, widths):
 
             valign = self._valign[field]
             lines = value.split("\n")
